@@ -35,7 +35,7 @@ interface PullRequestSearchResponse {
 
 const PREFETCH_INTERVAL_MS = 15 * 60 * 1000;
 const MIN_PREFETCH_GAP_MS = 10 * 60 * 1000;
-const UNLISTED_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+const UNLISTED_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 
 const SEARCH = gql`query PullRequestSearch($authored: String!, $reviewing: String!) {
 	authored: search(first: 50, type: ISSUE, query: $authored) { nodes { ... on PullRequest { number updatedAt } } }
