@@ -15,6 +15,7 @@ export const FILE_AUTO_REVEAL = 'fileAutoReveal';
 export const ASSIGN_TO = 'assignCreated';
 export const PUSH_BRANCH = 'pushBranch';
 export const IGNORE_PR_BRANCHES = 'ignoredPullRequestBranches';
+export const PREFETCH_PR_AUTHORS = 'prefetchPullRequestAuthors';
 export const IGNORE_SUBMODULES = 'ignoreSubmodules';
 export const NEVER_IGNORE_DEFAULT_BRANCH = 'neverIgnoreDefaultBranch';
 export const OVERRIDE_DEFAULT_BRANCH = 'overrideDefaultBranch';

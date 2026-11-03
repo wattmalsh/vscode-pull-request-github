@@ -14,6 +14,7 @@ import { getInMemPRFileSystemProvider, provideDocumentContentForChangeModel } fr
 import { PullRequestChangesTreeDataProvider } from './prChangesTreeDataProvider';
 import { ProgressHelper } from './progress';
 import { PullRequestsTreeDataProvider } from './prsTreeDataProvider';
+import { PullRequestCache } from './pullRequestCache';
 import { ReviewCommentController, SuggestionInformation } from './reviewCommentController';
 import { ReviewModel } from './reviewModel';
 import { DiffChangeType, DiffHunk, parseDiff, parsePatch, splitIntoSmallerHunks } from '../common/diffHunk';
@@ -42,21 +43,14 @@ import { FOCUS_REVIEW_MODE } from '../constants';
 import { GitHubCreatePullRequestLinkProvider } from '../github/createPRLinkProvider';
 import { FolderRepositoryManager } from '../github/folderRepositoryManager';
 import { GitHubRepository } from '../github/githubRepository';
-import { GithubItemStateEnum, IRawFileChange, PullRequest } from '../github/interface';
+import { GithubItemStateEnum } from '../github/interface';
 import { PullRequestGitHelper, PullRequestMetadata } from '../github/pullRequestGitHelper';
 import { IResolvedPullRequestModel, PullRequestModel } from '../github/pullRequestModel';
 import { GitFileChangeNode, gitFileChangeNodeFilter, RemoteFileChangeNode } from './treeNodes/fileChangeNode';
 import { WebviewViewCoordinator } from './webviewViewCoordinator';
 
-interface CachedPullRequest extends PullRequestMetadata {
-	item: PullRequest;
-	mergeBase: string;
-	files: IRawFileChange[];
-}
-
 export class ReviewManager extends Disposable {
 	public static ID = 'Review';
-	private static readonly CACHED_PULL_REQUEST_KEY = 'githubPullRequest.cachedPullRequest';
 	private static readonly MIN_POLL_INTERVAL_MS = 1000 * 60 * 5;
 	private static readonly MAX_POLL_INTERVAL_MS = 1000 * 60 * 30;
 	private static readonly POLL_BACKOFF_MULTIPLIER = 2;
@@ -80,6 +74,7 @@ export class ReviewManager extends Disposable {
 	private _switchingToReviewMode: boolean;
 	private _stateValidated: boolean = false;
 	private _validatedStateKey: string | undefined;
+	private readonly _pullRequestCache: PullRequestCache;
 	private _changesSinceLastReviewProgress: ProgressHelper = new ProgressHelper();
 	/**
 	 * Cached max PR numbers per repo, keyed by `owner/repo`.
@@ -145,6 +140,7 @@ export class ReviewManager extends Disposable {
 		super();
 		this._switchingToReviewMode = false;
 		this._isRepositorySelected = _repository.ui.selected;
+		this._pullRequestCache = new PullRequestCache(_context.globalStorageUri);
 
 		this._previousRepositoryState = {
 			HEAD: _repository.state.HEAD,
@@ -447,6 +443,7 @@ export class ReviewManager extends Disposable {
 				};
 				if (!this._stateValidated) {
 					this._stateValidated = true;
+					this._register(this._pullRequestCache.startPrefetching(() => this._folderRepoManager.gitHubRepositories));
 					commands.setContext('github:stateValidated', true).then(done);
 				} else {
 					done();
@@ -1268,30 +1265,23 @@ export class ReviewManager extends Disposable {
 		return nodes;
 	}
 
-	private get cachedPullRequestKey(): string {
-		return `${ReviewManager.CACHED_PULL_REQUEST_KEY}:${this._repository.rootUri.toString()}`;
-	}
-
 	private cachePullRequest(pr: PullRequestModel): void {
 		if (pr !== this._folderRepoManager.activePullRequest || !pr.mergeBase || !pr.rawFileChanges) {
 			return;
 		}
-		const cached: CachedPullRequest = {
+		this._pullRequestCache.set({
 			owner: pr.remote.owner,
 			repositoryName: pr.remote.repositoryName,
 			prNumber: pr.number,
 			item: pr.item,
 			mergeBase: pr.mergeBase,
 			files: pr.rawFileChanges,
-		};
-		this._context.workspaceState.update(this.cachedPullRequestKey, cached);
+		}).catch(e => Logger.warn(`Failed to cache pull request: ${formatError(e)}`, this.id));
 	}
 
 	private async showCachedPullRequest(metadata: PullRequestMetadata): Promise<void> {
-		const cached = this._context.workspaceState.get<CachedPullRequest>(this.cachedPullRequestKey);
-		if (!cached || cached.prNumber !== metadata.prNumber
-			|| cached.owner.toLowerCase() !== metadata.owner.toLowerCase()
-			|| cached.repositoryName.toLowerCase() !== metadata.repositoryName.toLowerCase()) {
+		const cached = await this._pullRequestCache.get(metadata);
+		if (!cached) {
 			return;
 		}
 		const githubRepository = this._folderRepoManager.gitHubRepositories.find(repo =>
