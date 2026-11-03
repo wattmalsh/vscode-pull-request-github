@@ -266,6 +266,70 @@ describe('ReviewManager polling', function () {
 		assert.strictEqual(checkGitHubForPrBranch.called, false);
 	});
 
+	it('uses the local pull request association without checking GitHub', async function () {
+		await repository.createBranch('feature', true, 'head-sha');
+		sinon.stub(manager, 'updateRepositories').resolves(true);
+		sinon.stub(repository, 'getConfigs').resolves([
+			{ key: 'branch.feature.github-pr-owner-number', value: 'owner#repo#7492' },
+		]);
+		const internal = reviewManager as unknown as {
+			validateState(silent: boolean, updateLayout: boolean): Promise<void>;
+			resolvePullRequest(metadata: PullRequestMetadata, useCache: boolean): Promise<undefined>;
+			checkGitHubForPrBranch(branch: Branch): Promise<unknown>;
+		};
+		const resolvePullRequest = sinon.stub(internal, 'resolvePullRequest').resolves(undefined);
+		const checkGitHubForPrBranch = sinon.stub(internal, 'checkGitHubForPrBranch').resolves(undefined);
+
+		await internal.validateState(true, false);
+
+		assert.strictEqual(checkGitHubForPrBranch.called, false);
+		assert.deepStrictEqual(resolvePullRequest.firstCall.args[0], {
+			owner: 'owner',
+			repositoryName: 'repo',
+			prNumber: 7492,
+		});
+	});
+
+	describe('validation requested while another is in progress', function () {
+		let internal: {
+			_validatedStateKey?: string;
+			repositoryStateKey(): string;
+			validateState(silent: boolean, updateLayout: boolean): Promise<void>;
+		};
+		let finishValidation: () => void;
+		let validateState: SinonStub;
+
+		beforeEach(async function () {
+			await repository.createBranch('feature', true, 'head-sha');
+			internal = reviewManager as unknown as typeof internal;
+			validateState = sinon.stub(internal, 'validateState').callsFake(() => {
+				internal._validatedStateKey = internal.repositoryStateKey();
+				return validateState.callCount === 1 ? new Promise<void>(resolve => { finishValidation = resolve; }) : Promise.resolve();
+			});
+		});
+
+		it('is skipped when the repository state has not changed', async function () {
+			const first = reviewManager.updateState(true);
+			const queued = reviewManager.updateState(true);
+			finishValidation();
+			await first;
+			await queued;
+
+			assert.strictEqual(validateState.callCount, 1);
+		});
+
+		it('runs when the branch changed', async function () {
+			const first = reviewManager.updateState(true);
+			await repository.createBranch('other', true, 'other-sha');
+			const queued = reviewManager.updateState(true);
+			finishValidation();
+			await first;
+			await queued;
+
+			assert.strictEqual(validateState.callCount, 2);
+		});
+	});
+
 	it('keeps an explicit pull request selected when validation overlaps its checkout', async function () {
 		await repository.createBranch('feature', true, 'head-sha');
 		let resolveUpdateRepositories!: (updated: boolean) => void;

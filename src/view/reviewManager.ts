@@ -16,7 +16,7 @@ import { ProgressHelper } from './progress';
 import { PullRequestsTreeDataProvider } from './prsTreeDataProvider';
 import { ReviewCommentController, SuggestionInformation } from './reviewCommentController';
 import { ReviewModel } from './reviewModel';
-import { DiffChangeType, DiffHunk, parsePatch, splitIntoSmallerHunks } from '../common/diffHunk';
+import { DiffChangeType, DiffHunk, parseDiff, parsePatch, splitIntoSmallerHunks } from '../common/diffHunk';
 import { commands } from '../common/executeCommands';
 import { GitChangeType, InMemFileChange, SlimFileChange } from '../common/file';
 import { Disposable, disposeAll, toDisposable } from '../common/lifecycle';
@@ -42,14 +42,21 @@ import { FOCUS_REVIEW_MODE } from '../constants';
 import { GitHubCreatePullRequestLinkProvider } from '../github/createPRLinkProvider';
 import { FolderRepositoryManager } from '../github/folderRepositoryManager';
 import { GitHubRepository } from '../github/githubRepository';
-import { GithubItemStateEnum } from '../github/interface';
+import { GithubItemStateEnum, IRawFileChange, PullRequest } from '../github/interface';
 import { PullRequestGitHelper, PullRequestMetadata } from '../github/pullRequestGitHelper';
 import { IResolvedPullRequestModel, PullRequestModel } from '../github/pullRequestModel';
 import { GitFileChangeNode, gitFileChangeNodeFilter, RemoteFileChangeNode } from './treeNodes/fileChangeNode';
 import { WebviewViewCoordinator } from './webviewViewCoordinator';
 
+interface CachedPullRequest extends PullRequestMetadata {
+	item: PullRequest;
+	mergeBase: string;
+	files: IRawFileChange[];
+}
+
 export class ReviewManager extends Disposable {
 	public static ID = 'Review';
+	private static readonly CACHED_PULL_REQUEST_KEY = 'githubPullRequest.cachedPullRequest';
 	private static readonly MIN_POLL_INTERVAL_MS = 1000 * 60 * 5;
 	private static readonly MAX_POLL_INTERVAL_MS = 1000 * 60 * 30;
 	private static readonly POLL_BACKOFF_MULTIPLIER = 2;
@@ -72,6 +79,7 @@ export class ReviewManager extends Disposable {
 
 	private _switchingToReviewMode: boolean;
 	private _stateValidated: boolean = false;
+	private _validatedStateKey: string | undefined;
 	private _changesSinceLastReviewProgress: ProgressHelper = new ProgressHelper();
 	/**
 	 * Cached max PR numbers per repo, keyed by `owner/repo`.
@@ -390,12 +398,22 @@ export class ReviewManager extends Disposable {
 			return this._validateStatusInProgress;
 		} else {
 			Logger.appendLine('Queuing additional validate state', this.id);
+			const queuedStateKey = this.repositoryStateKey();
 			this._validateStatusInProgress = this._validateStatusInProgress.then(async _ => {
+				if (!this.justSwitchedToReviewMode && queuedStateKey === this._validatedStateKey && queuedStateKey === this.repositoryStateKey()) {
+					Logger.appendLine('Skipping queued validate state: repository state unchanged', this.id);
+					return;
+				}
 				return await this.validateStatusAndSetContext(silent, updateLayout);
 			});
 
 			return this._validateStatusInProgress;
 		}
+	}
+
+	private repositoryStateKey(): string {
+		const head = this._repository.state.HEAD;
+		return JSON.stringify([head?.name, head?.commit, head?.upstream?.remote, head?.upstream?.name, this._repository.state.remotes.map(remote => [remote.name, remote.fetchUrl, remote.pushUrl])]);
 	}
 
 	private async validateStatusAndSetContext(silent: boolean, updateLayout: boolean) {
@@ -635,6 +653,7 @@ export class ReviewManager extends Disposable {
 		}
 
 		const branch = this._repository.state.HEAD;
+		this._validatedStateKey = this.repositoryStateKey();
 		const ignoreBranches = vscode.workspace.getConfiguration(PR_SETTINGS_NAMESPACE).get<string[]>(IGNORE_PR_BRANCHES);
 		const remoteName = branch.remote ?? branch.upstream?.remote;
 		if (ignoreBranches?.find(value => value === branch.name) && ((remoteName === 'origin') || !(await this._folderRepoManager.gitHubRepositories.find(repo => repo.remote.remoteName === remoteName)?.getMetadata())?.fork)) {
@@ -684,7 +703,7 @@ export class ReviewManager extends Disposable {
 			&& !branchChanged;
 
 		let shouldCheckGitHub = false;
-		if (!switchedToPullRequest) {
+		if (!switchedToPullRequest && !matchingPullRequestMetadata) {
 			shouldCheckGitHub = branchChanged || shouldRecoverMissingMetadata || shouldVerifyLocalMetadata;
 			if (!shouldCheckGitHub) {
 				shouldCheckGitHub = await this.hasNewPullRequests();
@@ -727,6 +746,9 @@ export class ReviewManager extends Disposable {
 		const previousPrNumber = this._prNumber;
 		// Use the cache if we just checked out the same PR as a small performance optimization.
 		const justCheckedOutSamePr = this.justSwitchedToReviewMode && (previousPrNumber === matchingPullRequestMetadata.prNumber);
+		if (this._isFirstLoad && !switchedToPullRequest) {
+			await this.showCachedPullRequest(matchingPullRequestMetadata);
+		}
 		let pr = await this.resolvePullRequest(matchingPullRequestMetadata, justCheckedOutSamePr);
 		if (!pr) {
 			Logger.appendLine(`Unable to resolve PR #${matchingPullRequestMetadata.prNumber}`, this.id);
@@ -1246,10 +1268,58 @@ export class ReviewManager extends Disposable {
 		return nodes;
 	}
 
+	private get cachedPullRequestKey(): string {
+		return `${ReviewManager.CACHED_PULL_REQUEST_KEY}:${this._repository.rootUri.toString()}`;
+	}
+
+	private cachePullRequest(pr: PullRequestModel): void {
+		if (pr !== this._folderRepoManager.activePullRequest || !pr.mergeBase || !pr.rawFileChanges) {
+			return;
+		}
+		const cached: CachedPullRequest = {
+			owner: pr.remote.owner,
+			repositoryName: pr.remote.repositoryName,
+			prNumber: pr.number,
+			item: pr.item,
+			mergeBase: pr.mergeBase,
+			files: pr.rawFileChanges,
+		};
+		this._context.workspaceState.update(this.cachedPullRequestKey, cached);
+	}
+
+	private async showCachedPullRequest(metadata: PullRequestMetadata): Promise<void> {
+		const cached = this._context.workspaceState.get<CachedPullRequest>(this.cachedPullRequestKey);
+		if (!cached || cached.prNumber !== metadata.prNumber
+			|| cached.owner.toLowerCase() !== metadata.owner.toLowerCase()
+			|| cached.repositoryName.toLowerCase() !== metadata.repositoryName.toLowerCase()) {
+			return;
+		}
+		const githubRepository = this._folderRepoManager.gitHubRepositories.find(repo =>
+			repo.remote.owner.toLowerCase() === cached.owner.toLowerCase()
+			&& repo.remote.repositoryName.toLowerCase() === cached.repositoryName.toLowerCase());
+		if (!githubRepository) {
+			return;
+		}
+		try {
+			const pr = githubRepository.createOrUpdatePullRequestModel(cached.item, true);
+			if (!pr.isResolved()) {
+				return;
+			}
+			pr.mergeBase = cached.mergeBase;
+			Logger.appendLine(`Showing cached pull request #${pr.number} until GitHub responds`, this.id);
+			this._folderRepoManager.activePullRequest = pr;
+			this._reviewModel.localFileChanges = await this.getLocalChangeNodes(pr, await parseDiff(cached.files, cached.mergeBase));
+			await this.changesInPrDataProvider.addPrToView(this._folderRepoManager, pr, this._reviewModel, false, this._changesSinceLastReviewProgress);
+		} catch (e) {
+			Logger.warn(`Failed to show cached pull request: ${formatError(e)}`, this.id);
+		}
+	}
+
 	private async initializePullRequestData(pr: PullRequestModel & IResolvedPullRequestModel): Promise<void> {
 		try {
 			const contentChanges = await pr.getFileChangesInfo();
 			this._reviewModel.localFileChanges = await this.getLocalChangeNodes(pr, contentChanges);
+			this.cachePullRequest(pr);
 			await Promise.all([pr.initializeReviewThreadCacheAndReviewComments(), pr.initializePullRequestFileViewState()]);
 			this._folderRepoManager.setFileViewedContext();
 			const outdatedComments = pr.comments.filter(comment => comment.isOutdated || !comment.position);
