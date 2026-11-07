@@ -17,19 +17,9 @@ import { FilesCategoryNode } from './filesCategoryNode';
 import { BaseTreeNode, TreeNode } from './treeNode';
 import { compareIgnoreCase } from '../../common/utils';
 
-const STALE_CHECKOUT_COLORS: Record<string, string> = {
-	'/warning': 'list.warningForeground',
-	'/action': 'textLink.foreground',
-};
-
-function staleCheckoutUri(row: string): vscode.Uri {
-	return vscode.Uri.from({ scheme: Schemes.StaleCheckout, path: row });
-}
-
 export class StaleCheckoutDecorationProvider implements vscode.FileDecorationProvider {
 	provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
-		const color = uri.scheme === Schemes.StaleCheckout ? STALE_CHECKOUT_COLORS[uri.path] : undefined;
-		return color ? new vscode.FileDecoration(undefined, undefined, new vscode.ThemeColor(color)) : undefined;
+		return uri.scheme === Schemes.StaleCheckout ? new vscode.FileDecoration(undefined, undefined, new vscode.ThemeColor('textLink.foreground')) : undefined;
 	}
 }
 
@@ -40,7 +30,6 @@ export class StaleCheckoutNode extends TreeNode {
 
 	getTreeItem(): vscode.TreeItem {
 		const item = new vscode.TreeItem(vscode.l10n.t('Local {0} is not pull request head {1}', this._local.substring(0, 7), this._head.substring(0, 7)));
-		item.resourceUri = staleCheckoutUri('/warning');
 		item.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'));
 		item.tooltip = vscode.l10n.t('The checked-out commit is not the latest commit of this pull request on GitHub, so the diffs below can show changes the pull request does not make.');
 		return item;
@@ -54,7 +43,7 @@ export class StaleCheckoutActionNode extends TreeNode {
 
 	getTreeItem(): vscode.TreeItem {
 		const item = new vscode.TreeItem(vscode.l10n.t('Check Out Pull Request Head'));
-		item.resourceUri = staleCheckoutUri('/action');
+		item.resourceUri = vscode.Uri.from({ scheme: Schemes.StaleCheckout, path: '/action' });
 		item.iconPath = new vscode.ThemeIcon('cloud-download', new vscode.ThemeColor('textLink.foreground'));
 		item.tooltip = vscode.l10n.t('Fetch the pull request branch and move the checkout to {0}', this.head.substring(0, 7));
 		item.command = { title: vscode.l10n.t('Check Out Pull Request Head'), command: 'pr.checkOutStaleHead', arguments: [this] };
