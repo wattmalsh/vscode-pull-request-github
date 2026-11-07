@@ -16,7 +16,7 @@ import { FolderRepositoryManager } from '../github/folderRepositoryManager';
 import { PullRequestModel } from '../github/pullRequestModel';
 import { RepositoriesManager } from '../github/repositoriesManager';
 import { GitFileChangeNode } from './treeNodes/fileChangeNode';
-import { RepositoryChangesNode } from './treeNodes/repositoryChangesNode';
+import { RepositoryChangesNode, StaleCheckoutDecorationProvider } from './treeNodes/repositoryChangesNode';
 import { BaseTreeNode, TreeNode } from './treeNodes/treeNode';
 import { TreeUtils } from './treeNodes/treeUtils';
 
@@ -40,6 +40,7 @@ export class PullRequestChangesTreeDataProvider extends Disposable implements vs
 			canSelectMany: true,
 			manageCheckboxStateManually: true
 		}));
+		this._register(vscode.window.registerFileDecorationProvider(new StaleCheckoutDecorationProvider()));
 
 		this._register(
 			vscode.workspace.onDidChangeConfiguration(async e => {

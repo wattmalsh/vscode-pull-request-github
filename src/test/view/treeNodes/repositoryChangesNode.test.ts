@@ -6,7 +6,7 @@
 import { default as assert } from 'assert';
 import * as vscode from 'vscode';
 import { BaseTreeNode, TreeNode } from '../../../view/treeNodes/treeNode';
-import { RepositoryChangesNode, StaleCheckoutNode } from '../../../view/treeNodes/repositoryChangesNode';
+import { RepositoryChangesNode, StaleCheckoutActionNode, StaleCheckoutNode } from '../../../view/treeNodes/repositoryChangesNode';
 
 function disposable(): vscode.Disposable {
 	return { dispose: () => { } };
@@ -77,9 +77,11 @@ describe('RepositoryChangesNode', function () {
 
 		try {
 			children = await node.getChildren();
-			assert.strictEqual(children.length, 3);
+			assert.strictEqual(children.length, 4);
 			assert.ok(children[0] instanceof StaleCheckoutNode);
 			assert.strictEqual((await children[0].getTreeItem()).label, 'Local f731991 is not pull request head c439467');
+			assert.ok(children[1] instanceof StaleCheckoutActionNode);
+			assert.strictEqual((await children[1].getTreeItem()).command?.command, 'pr.checkOutStaleHead');
 		} finally {
 			children.forEach(child => child.dispose());
 			node.dispose();
@@ -93,7 +95,7 @@ describe('RepositoryChangesNode', function () {
 		try {
 			children = await node.getChildren();
 			assert.strictEqual(children.length, 2);
-			assert.ok(!children.some(child => child instanceof StaleCheckoutNode));
+			assert.ok(!children.some(child => child instanceof StaleCheckoutNode || child instanceof StaleCheckoutActionNode));
 		} finally {
 			children.forEach(child => child.dispose());
 			node.dispose();

@@ -58,7 +58,7 @@ import {
 	RemoteFileChangeNode,
 } from './view/treeNodes/fileChangeNode';
 import { PRNode } from './view/treeNodes/pullRequestNode';
-import { RepositoryChangesNode, StaleCheckoutNode } from './view/treeNodes/repositoryChangesNode';
+import { RepositoryChangesNode, StaleCheckoutActionNode } from './view/treeNodes/repositoryChangesNode';
 
 function ensurePR(folderRepoManager: FolderRepositoryManager, pr?: PRNode): PullRequestModel;
 function ensurePR<TIssue extends Issue, TIssueModel extends IssueModel<TIssue>>(folderRepoManager: FolderRepositoryManager, pr?: TIssueModel): TIssueModel;
@@ -1784,7 +1784,7 @@ ${contents}
 				});
 			});
 		}),
-		vscode.commands.registerCommand('pr.checkOutStaleHead', async (node: StaleCheckoutNode) => {
+		vscode.commands.registerCommand('pr.checkOutStaleHead', async (node: StaleCheckoutActionNode) => {
 			try {
 				const refusal = await vscode.window.withProgress({ location: { viewId: 'prStatus:github' } }, () => checkOutPullRequestHead(node.repository, node.head));
 				if (refusal) {

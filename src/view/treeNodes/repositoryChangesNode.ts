@@ -17,16 +17,47 @@ import { FilesCategoryNode } from './filesCategoryNode';
 import { BaseTreeNode, TreeNode } from './treeNode';
 import { compareIgnoreCase } from '../../common/utils';
 
+const STALE_CHECKOUT_COLORS: Record<string, string> = {
+	'/warning': 'list.warningForeground',
+	'/action': 'textLink.foreground',
+};
+
+function staleCheckoutUri(row: string): vscode.Uri {
+	return vscode.Uri.from({ scheme: Schemes.StaleCheckout, path: row });
+}
+
+export class StaleCheckoutDecorationProvider implements vscode.FileDecorationProvider {
+	provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+		const color = uri.scheme === Schemes.StaleCheckout ? STALE_CHECKOUT_COLORS[uri.path] : undefined;
+		return color ? new vscode.FileDecoration(undefined, undefined, new vscode.ThemeColor(color)) : undefined;
+	}
+}
+
 export class StaleCheckoutNode extends TreeNode {
-	constructor(parent: TreeNode, public readonly repository: Repository, private readonly _local: string, public readonly head: string) {
+	constructor(parent: TreeNode, private readonly _local: string, private readonly _head: string) {
 		super(parent);
 	}
 
 	getTreeItem(): vscode.TreeItem {
-		const item = new vscode.TreeItem(vscode.l10n.t('Local {0} is not pull request head {1}', this._local.substring(0, 7), this.head.substring(0, 7)));
-		item.contextValue = 'staleCheckout';
+		const item = new vscode.TreeItem(vscode.l10n.t('Local {0} is not pull request head {1}', this._local.substring(0, 7), this._head.substring(0, 7)));
+		item.resourceUri = staleCheckoutUri('/warning');
 		item.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'));
 		item.tooltip = vscode.l10n.t('The checked-out commit is not the latest commit of this pull request on GitHub, so the diffs below can show changes the pull request does not make.');
+		return item;
+	}
+}
+
+export class StaleCheckoutActionNode extends TreeNode {
+	constructor(parent: TreeNode, public readonly repository: Repository, public readonly head: string) {
+		super(parent);
+	}
+
+	getTreeItem(): vscode.TreeItem {
+		const item = new vscode.TreeItem(vscode.l10n.t('Check Out Pull Request Head'));
+		item.resourceUri = staleCheckoutUri('/action');
+		item.iconPath = new vscode.ThemeIcon('cloud-download', new vscode.ThemeColor('textLink.foreground'));
+		item.tooltip = vscode.l10n.t('Fetch the pull request branch and move the checkout to {0}', this.head.substring(0, 7));
+		item.command = { title: vscode.l10n.t('Check Out Pull Request Head'), command: 'pr.checkOutStaleHead', arguments: [this] };
 		return item;
 	}
 }
@@ -100,7 +131,7 @@ export class RepositoryChangesNode extends TreeNode implements vscode.TreeItem {
 	}
 
 	private _staleKey?: string;
-	private _staleCheckoutNode?: StaleCheckoutNode;
+	private _staleCheckoutNodes: TreeNode[] = [];
 
 	private staleCheckout(): { local: string, head: string } | undefined {
 		const local = this.repository.state.HEAD?.commit;
@@ -156,16 +187,13 @@ export class RepositoryChangesNode extends TreeNode implements vscode.TreeItem {
 				this.pullRequestModel,
 			);
 		}
-		this._staleCheckoutNode?.dispose();
-		this._staleCheckoutNode = undefined;
+		this._staleCheckoutNodes.forEach(node => node.dispose());
 		const stale = this.staleCheckout();
 		this._staleKey = this.staleKey(stale);
-		if (stale) {
-			this._staleCheckoutNode = new StaleCheckoutNode(this, this.repository, stale.local, stale.head);
-		}
-		this._children = this._staleCheckoutNode
-			? [this._staleCheckoutNode, this._filesCategoryNode, this._commitsCategoryNode]
-			: [this._filesCategoryNode, this._commitsCategoryNode];
+		this._staleCheckoutNodes = stale
+			? [new StaleCheckoutNode(this, stale.local, stale.head), new StaleCheckoutActionNode(this, this.repository, stale.head)]
+			: [];
+		this._children = [...this._staleCheckoutNodes, this._filesCategoryNode, this._commitsCategoryNode];
 		return this._children;
 	}
 

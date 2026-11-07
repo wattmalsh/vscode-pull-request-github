@@ -3154,11 +3154,6 @@
 					"when": "(view == prStatus:github && viewItem =~ /commit/) && !isSessionsWindow"
 				},
 				{
-					"command": "pr.checkOutStaleHead",
-					"group": "inline@0",
-					"when": "(view == prStatus:github && viewItem == staleCheckout) && !isSessionsWindow"
-				},
-				{
 					"command": "review.openFile",
 					"group": "inline@0",
 					"when": "(openDiffOnClick && showInlineOpenFileAction && view == prStatus:github && viewItem =~ /filechange(?!:DELETE)/) && !isSessionsWindow"

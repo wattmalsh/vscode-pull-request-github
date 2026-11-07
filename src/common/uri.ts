@@ -824,7 +824,8 @@ export enum Schemes {
 	PRQuery = 'prquery', // PR query tree item
 	GitHubCommit = 'githubcommit', // file content from GitHub for a commit
 	CommitsNode = 'commitsnode', // Commits tree node, for decorations
-	CheckRunLog = 'checkrunlog' // Check run log content
+	CheckRunLog = 'checkrunlog', // Check run log content
+	StaleCheckout = 'stalecheckout' // Stale checkout tree items, for decorations
 }
 
 export function resolvePath(from: vscode.Uri, to: string) {
