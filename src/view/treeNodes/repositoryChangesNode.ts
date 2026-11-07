@@ -17,6 +17,19 @@ import { FilesCategoryNode } from './filesCategoryNode';
 import { BaseTreeNode, TreeNode } from './treeNode';
 import { compareIgnoreCase } from '../../common/utils';
 
+export class StaleCheckoutNode extends TreeNode {
+	constructor(parent: TreeNode, private readonly _local: string, private readonly _head: string) {
+		super(parent);
+	}
+
+	getTreeItem(): vscode.TreeItem {
+		const item = new vscode.TreeItem(vscode.l10n.t('Local {0} is not pull request head {1}', this._local.substring(0, 7), this._head.substring(0, 7)));
+		item.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'));
+		item.tooltip = vscode.l10n.t('The checked-out commit is not the latest commit of this pull request on GitHub, so the diffs below can show changes the pull request does not make.');
+		return item;
+	}
+}
+
 export class RepositoryChangesNode extends TreeNode implements vscode.TreeItem {
 	private _filesCategoryNode?: FilesCategoryNode;
 	private _commitsCategoryNode?: CommitsNode;
@@ -77,8 +90,34 @@ export class RepositoryChangesNode extends TreeNode implements vscode.TreeItem {
 		this._register(this.pullRequestModel.onDidChange(e => {
 			if (e.title || e.state) {
 				this.refresh();
+			} else if (e.head) {
+				this.refreshIfStaleChanged();
 			}
 		}));
+
+		this._register(this.repository.state.onDidChange(() => this.refreshIfStaleChanged()));
+	}
+
+	private _staleKey?: string;
+	private _staleCheckoutNode?: StaleCheckoutNode;
+
+	private staleCheckout(): { local: string, head: string } | undefined {
+		const local = this.repository.state.HEAD?.commit;
+		const head = this.pullRequestModel.head?.sha;
+		if (!local || !head || local === head || !this.pullRequestModel.equals(this._pullRequestManager.activePullRequest)) {
+			return undefined;
+		}
+		return { local, head };
+	}
+
+	private staleKey(stale: { local: string, head: string } | undefined): string | undefined {
+		return stale && `${stale.local}:${stale.head}`;
+	}
+
+	private refreshIfStaleChanged(): void {
+		if (this.staleKey(this.staleCheckout()) !== this._staleKey) {
+			this.refresh(this);
+		}
 	}
 
 	private isFileAutoRevealEnabled(): boolean {
@@ -116,7 +155,16 @@ export class RepositoryChangesNode extends TreeNode implements vscode.TreeItem {
 				this.pullRequestModel,
 			);
 		}
-		this._children = [this._filesCategoryNode, this._commitsCategoryNode];
+		this._staleCheckoutNode?.dispose();
+		this._staleCheckoutNode = undefined;
+		const stale = this.staleCheckout();
+		this._staleKey = this.staleKey(stale);
+		if (stale) {
+			this._staleCheckoutNode = new StaleCheckoutNode(this, stale.local, stale.head);
+		}
+		this._children = this._staleCheckoutNode
+			? [this._staleCheckoutNode, this._filesCategoryNode, this._commitsCategoryNode]
+			: [this._filesCategoryNode, this._commitsCategoryNode];
 		return this._children;
 	}
 

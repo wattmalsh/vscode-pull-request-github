@@ -6,15 +6,14 @@
 import { default as assert } from 'assert';
 import * as vscode from 'vscode';
 import { BaseTreeNode, TreeNode } from '../../../view/treeNodes/treeNode';
-import { RepositoryChangesNode } from '../../../view/treeNodes/repositoryChangesNode';
+import { RepositoryChangesNode, StaleCheckoutNode } from '../../../view/treeNodes/repositoryChangesNode';
 
 function disposable(): vscode.Disposable {
 	return { dispose: () => { } };
 }
 
 describe('RepositoryChangesNode', function () {
-	// Verifies that VS Code can resolve the visible category nodes through their rendered parent chain.
-	it('parents the category nodes to the repository changes node', async function () {
+	function createNode(localCommit: string, headSha: string): RepositoryChangesNode {
 		const parent: BaseTreeNode = {
 			reveal: async () => { },
 			refresh: () => { },
@@ -36,9 +35,10 @@ describe('RepositoryChangesNode', function () {
 			onDidChangeReviewThreads: () => disposable(),
 			onDidChangeFileViewedState: () => disposable(),
 			equals: () => true,
+			head: { sha: headSha },
 		};
 		const folderRepositoryManager = {
-			repository: {},
+			repository: { state: { HEAD: { commit: localCommit }, onDidChange: () => disposable() } },
 			context: {},
 			activePullRequest: pullRequestModel,
 			isPullRequestAssociatedWithOpenRepository: () => true,
@@ -46,13 +46,18 @@ describe('RepositoryChangesNode', function () {
 		const reviewModel = {
 			onDidChangeLocalFileChanges: () => disposable(),
 		};
-		const node = new RepositoryChangesNode(
+		return new RepositoryChangesNode(
 			parent,
 			pullRequestModel as any,
 			folderRepositoryManager as any,
 			reviewModel as any,
 			{ progress: Promise.resolve() } as any,
 		);
+	}
+
+	// Verifies that VS Code can resolve the visible category nodes through their rendered parent chain.
+	it('parents the category nodes to the repository changes node', async function () {
+		const node = createNode('abc1234def', 'abc1234def');
 		let children: TreeNode[] = [];
 
 		try {
@@ -60,6 +65,35 @@ describe('RepositoryChangesNode', function () {
 			const [filesNode, commitsNode] = children;
 			assert.strictEqual(filesNode.getParent(), node);
 			assert.strictEqual(commitsNode.getParent(), node);
+		} finally {
+			children.forEach(child => child.dispose());
+			node.dispose();
+		}
+	});
+
+	it('shows a warning row first when the checkout is not the pull request head', async function () {
+		const node = createNode('f7319917986aaaa', 'c439467d484bbbb');
+		let children: TreeNode[] = [];
+
+		try {
+			children = await node.getChildren();
+			assert.strictEqual(children.length, 3);
+			assert.ok(children[0] instanceof StaleCheckoutNode);
+			assert.strictEqual((await children[0].getTreeItem()).label, 'Local f731991 is not pull request head c439467');
+		} finally {
+			children.forEach(child => child.dispose());
+			node.dispose();
+		}
+	});
+
+	it('shows no warning row when the checkout is the pull request head', async function () {
+		const node = createNode('c439467d484bbbb', 'c439467d484bbbb');
+		let children: TreeNode[] = [];
+
+		try {
+			children = await node.getChildren();
+			assert.strictEqual(children.length, 2);
+			assert.ok(!children.some(child => child instanceof StaleCheckoutNode));
 		} finally {
 			children.forEach(child => child.dispose());
 			node.dispose();
