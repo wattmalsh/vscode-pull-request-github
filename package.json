@@ -1269,6 +1269,12 @@
 				"category": "%command.pull.request.category%"
 			},
 			{
+				"command": "pr.checkOutStaleHead",
+				"title": "%command.pr.checkOutStaleHead.title%",
+				"icon": "$(cloud-download)",
+				"category": "%command.pull.request.category%"
+			},
+			{
 				"command": "pr.configurePRViewlet",
 				"title": "%command.pr.configurePRViewlet.title%",
 				"category": "%command.pull.request.category%",
@@ -2454,6 +2460,10 @@
 					"when": "false"
 				},
 				{
+					"command": "pr.checkOutStaleHead",
+					"when": "false"
+				},
+				{
 					"command": "pr.signin",
 					"when": "(gitHubOpenRepositoryCount != 0 && github:hasGitHubRemotes) && !isSessionsWindow"
 				},
@@ -2893,11 +2903,6 @@
 					"group": "overflow@3"
 				},
 				{
-					"command": "pr.refreshChanges",
-					"when": "(view == prStatus:github) && !isSessionsWindow",
-					"group": "navigation@2"
-				},
-				{
 					"command": "pr.setFileListLayoutAsTree",
 					"when": "(view == prStatus:github && fileListLayout:flat) && !isSessionsWindow",
 					"group": "navigation1"
@@ -3147,6 +3152,11 @@
 				{
 					"command": "pr.copyCommitHash",
 					"when": "(view == prStatus:github && viewItem =~ /commit/) && !isSessionsWindow"
+				},
+				{
+					"command": "pr.checkOutStaleHead",
+					"group": "inline@0",
+					"when": "(view == prStatus:github && viewItem == staleCheckout) && !isSessionsWindow"
 				},
 				{
 					"command": "review.openFile",

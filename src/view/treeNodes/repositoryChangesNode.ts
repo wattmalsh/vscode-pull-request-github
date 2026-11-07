@@ -18,12 +18,13 @@ import { BaseTreeNode, TreeNode } from './treeNode';
 import { compareIgnoreCase } from '../../common/utils';
 
 export class StaleCheckoutNode extends TreeNode {
-	constructor(parent: TreeNode, private readonly _local: string, private readonly _head: string) {
+	constructor(parent: TreeNode, public readonly repository: Repository, private readonly _local: string, public readonly head: string) {
 		super(parent);
 	}
 
 	getTreeItem(): vscode.TreeItem {
-		const item = new vscode.TreeItem(vscode.l10n.t('Local {0} is not pull request head {1}', this._local.substring(0, 7), this._head.substring(0, 7)));
+		const item = new vscode.TreeItem(vscode.l10n.t('Local {0} is not pull request head {1}', this._local.substring(0, 7), this.head.substring(0, 7)));
+		item.contextValue = 'staleCheckout';
 		item.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'));
 		item.tooltip = vscode.l10n.t('The checked-out commit is not the latest commit of this pull request on GitHub, so the diffs below can show changes the pull request does not make.');
 		return item;
@@ -160,7 +161,7 @@ export class RepositoryChangesNode extends TreeNode implements vscode.TreeItem {
 		const stale = this.staleCheckout();
 		this._staleKey = this.staleKey(stale);
 		if (stale) {
-			this._staleCheckoutNode = new StaleCheckoutNode(this, stale.local, stale.head);
+			this._staleCheckoutNode = new StaleCheckoutNode(this, this.repository, stale.local, stale.head);
 		}
 		this._children = this._staleCheckoutNode
 			? [this._staleCheckoutNode, this._filesCategoryNode, this._commitsCategoryNode]

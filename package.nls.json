@@ -270,6 +270,7 @@
 	"command.pr.setFileListLayoutAsFlat.title": "View as List",
 	"command.pr.toggleHideViewedFiles.title": "Toggle Hide Viewed Files",
 	"command.pr.refreshChanges.title": "Refresh",
+	"command.pr.checkOutStaleHead.title": "Check Out Pull Request Head",
 	"command.pr.configurePRViewlet.title": "Configure...",
 	"command.pr.deleteLocalBranch.title": "Delete Local Branch",
 	"command.pr.signin.title": "Sign in to GitHub",

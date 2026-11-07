@@ -34,6 +34,7 @@ import { PullRequestModel } from './github/pullRequestModel';
 import { PullRequestOverviewPanel } from './github/pullRequestOverview';
 import { chooseItem } from './github/quickPicks';
 import { RepositoriesManager } from './github/repositoriesManager';
+import { checkOutPullRequestHead } from './github/staleCheckout';
 import { codespacesPrLink, getIssuesUrl, getPullsUrl, isInCodespaces, ISSUE_OR_URL_EXPRESSION, parseIssueExpressionOutput, vscodeDevPrLink, vscodeDevPrLinkFromUrl } from './github/utils';
 import { BaseContext, OverviewContext } from './github/views';
 import { checkoutPRInWorktree } from './github/worktree';
@@ -57,7 +58,7 @@ import {
 	RemoteFileChangeNode,
 } from './view/treeNodes/fileChangeNode';
 import { PRNode } from './view/treeNodes/pullRequestNode';
-import { RepositoryChangesNode } from './view/treeNodes/repositoryChangesNode';
+import { RepositoryChangesNode, StaleCheckoutNode } from './view/treeNodes/repositoryChangesNode';
 
 function ensurePR(folderRepoManager: FolderRepositoryManager, pr?: PRNode): PullRequestModel;
 function ensurePR<TIssue extends Issue, TIssueModel extends IssueModel<TIssue>>(folderRepoManager: FolderRepositoryManager, pr?: TIssueModel): TIssueModel;
@@ -1782,6 +1783,16 @@ ${contents}
 					]);
 				});
 			});
+		}),
+		vscode.commands.registerCommand('pr.checkOutStaleHead', async (node: StaleCheckoutNode) => {
+			try {
+				const refusal = await vscode.window.withProgress({ location: { viewId: 'prStatus:github' } }, () => checkOutPullRequestHead(node.repository, node.head));
+				if (refusal) {
+					vscode.window.showErrorMessage(refusal);
+				}
+			} catch (e) {
+				vscode.window.showErrorMessage(vscode.l10n.t('Could not check out the pull request head. {0}', formatError(e)));
+			}
 		}),
 	);
 
