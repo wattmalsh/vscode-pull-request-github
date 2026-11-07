@@ -1865,6 +1865,24 @@ export class GitHubRepository extends Disposable {
 		};
 	}
 
+	async getPullRequestHeadSha(id: number, etag?: string): Promise<{ sha: string, etag?: string } | undefined> {
+		const { octokit, remote } = await this.ensure();
+		try {
+			const { data, headers } = await octokit.call(octokit.api.pulls.get, {
+				owner: remote.owner,
+				repo: remote.repositoryName,
+				pull_number: id,
+				headers: etag ? { 'if-none-match': etag } : {},
+			});
+			return { sha: data.head.sha, etag: headers.etag };
+		} catch (e) {
+			if (e?.status === 304) {
+				return undefined;
+			}
+			throw e;
+		}
+	}
+
 	async getPullRequest(id: number, callerName: string, useCache: boolean = false, silent: boolean = false, loadMode: 'default' | 'overview' = 'default'): Promise<PullRequestModel | undefined> {
 		if (useCache && this._pullRequestModelsByNumber.has(id)) {
 			Logger.debug(`Using cached pull request model for ${id}`, this.id);

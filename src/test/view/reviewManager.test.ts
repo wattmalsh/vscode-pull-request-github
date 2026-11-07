@@ -230,6 +230,79 @@ describe('ReviewManager polling', function () {
 		assert.strictEqual(updateStateStub.called, true, 'poll should refresh state when active PR may be stale');
 	});
 
+	describe('active pull request head poll', function () {
+		const HEAD_POLL_INTERVAL_MS = 60_000;
+		let getPullRequestHeadSha: SinonStub;
+		let getPullRequest: SinonStub;
+		let update: SinonStub;
+
+		async function settle() {
+			for (let i = 0; i < 10; i++) {
+				await Promise.resolve();
+			}
+		}
+
+		beforeEach(function () {
+			getPullRequestHeadSha = sinon.stub();
+			getPullRequest = sinon.stub();
+			update = sinon.stub();
+			const pr = {
+				number: 7,
+				remote: { owner: 'aaa', repositoryName: 'bbb' },
+				head: { sha: 'old-sha' },
+				githubRepository: { getPullRequestHeadSha, getPullRequest },
+				update,
+			};
+			sinon.stub(manager, 'activePullRequest').get(() => pr as unknown as PullRequestModel);
+			sinon.stub(reviewManager, 'updateState').resolves();
+		});
+
+		it('refetches the pull request when its head moved on GitHub', async function () {
+			const fresh = { item: { number: 7 } };
+			getPullRequestHeadSha.resolves({ sha: 'new-sha', etag: '"e1"' });
+			getPullRequest.resolves(fresh);
+
+			clock.tick(HEAD_POLL_INTERVAL_MS);
+			await settle();
+
+			assert.deepStrictEqual(getPullRequestHeadSha.firstCall.args, [7, undefined]);
+			assert.strictEqual(getPullRequest.calledOnce, true);
+			assert.strictEqual(update.calledOnceWithExactly(fresh.item), true);
+
+			getPullRequestHeadSha.resolves(undefined);
+			clock.tick(HEAD_POLL_INTERVAL_MS);
+			await settle();
+
+			assert.deepStrictEqual(getPullRequestHeadSha.secondCall.args, [7, '"e1"']);
+			assert.strictEqual(getPullRequest.calledOnce, true);
+		});
+
+		it('does not refetch when the head is unchanged', async function () {
+			getPullRequestHeadSha.resolves({ sha: 'old-sha', etag: '"e1"' });
+
+			clock.tick(HEAD_POLL_INTERVAL_MS);
+			await settle();
+
+			assert.strictEqual(getPullRequestHeadSha.calledOnce, true);
+			assert.strictEqual(getPullRequest.called, false);
+		});
+
+		it('pauses while unfocused and checks right away on refocus', async function () {
+			getPullRequestHeadSha.resolves(undefined);
+			isWindowFocused = false;
+
+			clock.tick(HEAD_POLL_INTERVAL_MS * 3);
+			await settle();
+			assert.strictEqual(getPullRequestHeadSha.called, false);
+
+			isWindowFocused = true;
+			onDidChangeWindowStateCallback!({ focused: true } as vscode.WindowState);
+			await flushMicrotasks();
+
+			assert.strictEqual(getPullRequestHeadSha.calledOnce, true);
+		});
+	});
+
 	it('uses the explicitly checked out pull request for the checked out branch', async function () {
 		await repository.createBranch('feature', true, 'head-sha');
 		sinon.stub(manager, 'updateRepositories').resolves(true);

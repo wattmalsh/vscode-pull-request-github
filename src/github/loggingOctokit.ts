@@ -201,6 +201,9 @@ export class RateLogger {
 
 	public logApiError(info: string | undefined, apiResult: Promise<unknown>): void {
 		apiResult.catch(e => {
+			if (e?.status === 304) {
+				return;
+			}
 			const properties: { operation: string; errorCode?: string } = {
 				operation: RateLogger.sanitizeOperationName(info ?? 'unknown'),
 			};

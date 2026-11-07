@@ -54,6 +54,9 @@ export class ReviewManager extends Disposable {
 	private static readonly MIN_POLL_INTERVAL_MS = 1000 * 60 * 5;
 	private static readonly MAX_POLL_INTERVAL_MS = 1000 * 60 * 30;
 	private static readonly POLL_BACKOFF_MULTIPLIER = 2;
+	private static readonly HEAD_POLL_INTERVAL_MS = 1000 * 60;
+	private _headEtag?: { key: string, etag: string };
+	private _headPollInProgress = false;
 	private readonly _localToDispose: vscode.Disposable[] = [];
 
 	private readonly _reviewModel: ReviewModel = new ReviewModel();
@@ -154,7 +157,12 @@ export class ReviewManager extends Disposable {
 			this.updateState(true);
 		}
 		this.pollForStateChange();
+		const headPollHandle = setInterval(() => this.pollActivePullRequestHead(), ReviewManager.HEAD_POLL_INTERVAL_MS);
+		this._register(toDisposable(() => clearInterval(headPollHandle)));
 		this._register(vscode.window.onDidChangeWindowState(state => {
+			if (state.focused) {
+				this.pollActivePullRequestHead();
+			}
 			if (state.focused && !this._pollHandle) {
 				// Polling was skipped because the window was not focused. Schedule a
 				// poll with a randomized delay (jitter) so that in multi-repo setups
@@ -246,6 +254,34 @@ export class ReviewManager extends Disposable {
 		}));
 
 		this._register(GitHubCreatePullRequestLinkProvider.registerProvider(this, this._folderRepoManager));
+	}
+
+	async pollActivePullRequestHead(): Promise<void> {
+		const pr = this._folderRepoManager.activePullRequest;
+		if (!pr || this.isDisposed || this._headPollInProgress || !vscode.window.state.focused) {
+			return;
+		}
+		this._headPollInProgress = true;
+		try {
+			const key = `${pr.remote.owner}/${pr.remote.repositoryName}#${pr.number}`;
+			const result = await pr.githubRepository.getPullRequestHeadSha(pr.number, this._headEtag?.key === key ? this._headEtag.etag : undefined);
+			if (!result) {
+				return;
+			}
+			if (result.etag) {
+				this._headEtag = { key, etag: result.etag };
+			}
+			if (result.sha !== pr.head?.sha) {
+				const fresh = await pr.githubRepository.getPullRequest(pr.number, 'ReviewManager.pollActivePullRequestHead', false, true, 'overview');
+				if (fresh && fresh !== pr) {
+					pr.update(fresh.item);
+				}
+			}
+		} catch (e) {
+			Logger.debug(`Polling the head of pull request #${pr.number} failed: ${formatError(e)}`, this.id);
+		} finally {
+			this._headPollInProgress = false;
+		}
 	}
 
 	private pollForStateChange() {
