@@ -72,5 +72,8 @@ export async function checkOutPullRequestHead(repository: Repository, headSha: s
 			return undefined;
 		}
 	}
-	return vscode.l10n.t('Branch {0} has commits that were never on {1}.', head.name, upstreamName);
+	const ahead = repository.state.HEAD?.ahead;
+	return ahead
+		? vscode.l10n.t('Branch {0} has {1} commits that aren\'t on {2}, for example from an unpushed rebase. Push or discard them before checking out the pull request head.', head.name, ahead, upstreamName)
+		: vscode.l10n.t('Branch {0} has commits that aren\'t on {1}, for example from an unpushed rebase. Push or discard them before checking out the pull request head.', head.name, upstreamName);
 }

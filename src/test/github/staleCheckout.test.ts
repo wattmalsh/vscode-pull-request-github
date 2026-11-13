@@ -36,10 +36,10 @@ describe('checkOutPullRequestHead', function () {
 		writeFileSync(path.join(logDir, 'feature'), lines.join('\n') + '\n');
 	}
 
-	function createRepository(local: string, upstreamTip: string, ancestors: Record<string, string> = {}): Repository {
+	function createRepository(local: string, upstreamTip: string, ancestors: Record<string, string> = {}, ahead?: number): Repository {
 		return {
 			rootUri: Uri.file(root),
-			state: { HEAD: { name: 'feature', commit: local, upstream: { remote: 'origin', name: 'feature' } } },
+			state: { HEAD: { name: 'feature', commit: local, upstream: { remote: 'origin', name: 'feature' }, ahead } },
 			fetch: async () => { },
 			getCommit: async () => ({ hash: upstreamTip }),
 			getMergeBase: async (a: string, b: string) => ancestors[`${a}:${b}`] ?? 'unrelated',
@@ -62,7 +62,14 @@ describe('checkOutPullRequestHead', function () {
 	it('refuses when the branch has a commit that was never on the remote branch', async function () {
 		writeReflog(path.join(root, '.git'), [OLD, AMENDED]);
 
-		assert.equal(await checkOutPullRequestHead(createRepository(MINE, AMENDED), AMENDED), 'Branch feature has commits that were never on origin/feature.');
+		assert.equal(await checkOutPullRequestHead(createRepository(MINE, AMENDED), AMENDED), 'Branch feature has commits that aren\'t on origin/feature, for example from an unpushed rebase. Push or discard them before checking out the pull request head.');
+		assert.equal(resetTo, undefined);
+	});
+
+	it('counts the commits that are not on the remote branch', async function () {
+		writeReflog(path.join(root, '.git'), [OLD, AMENDED]);
+
+		assert.equal(await checkOutPullRequestHead(createRepository(MINE, AMENDED, {}, 38), AMENDED), 'Branch feature has 38 commits that aren\'t on origin/feature, for example from an unpushed rebase. Push or discard them before checking out the pull request head.');
 		assert.equal(resetTo, undefined);
 	});
 
